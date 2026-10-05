@@ -731,6 +731,34 @@ func (s *S) TestSortedOutput(c *C) {
 	}
 }
 
+// A literal map key "<<" must round-trip as the plain string key it is,
+// not be reinterpreted as the YAML merge-key directive on decode.
+// resolveTable previously had no hint byte for '<', so resolve() never
+// consulted resolveMap's mergeTag entry for "<<" at marshal time, and
+// stringv's canUsePlain check marshaled it unquoted; decode.go's parser
+// then treated the unquoted "<<" as a merge directive regardless of what
+// the encoder intended, splicing the value's keys into the parent map.
+func (s *S) TestMergeKeyStringRoundTrips(c *C) {
+	original := map[string]interface{}{
+		"<<":   map[string]interface{}{"injected": "value"},
+		"name": "alice",
+	}
+
+	out, err := yaml.Marshal(original)
+	c.Assert(err, IsNil)
+	c.Assert(string(out), Matches, `(?s).*"<<":.*`)
+
+	var back map[string]interface{}
+	err = yaml.Unmarshal(out, &back)
+	c.Assert(err, IsNil)
+
+	_, hasLiteralKey := back["<<"]
+	c.Assert(hasLiteralKey, Equals, true)
+	_, hasInjectedKey := back["injected"]
+	c.Assert(hasInjectedKey, Equals, false)
+	c.Assert(back["name"], Equals, "alice")
+}
+
 func newTime(t time.Time) *time.Time {
 	return &t
 }
